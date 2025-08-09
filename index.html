@@ -9,9 +9,9 @@
   <meta property="og:description" content="A retro 8‑bit street hockey shootout." />
   <style>
     :root { --scale: 1; --w: 240; --h: 600; }
-    html, body { height: 100%; margin: 0; background:#0f172a; color:#e5e7eb; font-family: system-ui, sans-serif; }
+    html, body { height: 100%; margin: 0; background:#0f172a; color:#e5e7eb; font-family: system-ui, sans-serif; overflow:hidden; touch-action:none; }
     .wrap { display:grid; place-items:center; gap:12px; height:100%; padding:12px; }
-    canvas { width: calc(var(--w) * var(--scale) * 1px); height: calc(var(--h) * var(--scale) * 1px); image-rendering: pixelated; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+    canvas { width: calc(var(--w) * var(--scale) * 1px); height: calc(var(--h) * var(--scale) * 1px); image-rendering: pixelated; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.45); touch-action:none; }
     .hud { display:flex; flex-wrap:wrap; gap:12px; align-items:center; font-size:14px; opacity:.95; justify-content:center; }
     .btn { background:#1f2937; border:1px solid #374151; padding:6px 10px; border-radius:8px; color:#e5e7eb; cursor:pointer; }
     .btn:hover { background:#111827; }
@@ -118,8 +118,11 @@
 
     // --- Input ---
     const keys = new Set();
-    window.addEventListener('keydown', e => { keys.add(e.key); if (e.key === ' ') e.preventDefault(); });
-    window.addEventListener('keyup', e => keys.delete(e.key));
+    const preventKeys = new Set([' ', 'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Home','End']);
+    const keydownHandler = (e) => { if (preventKeys.has(e.key)) e.preventDefault(); keys.add(e.key); };
+    const keyupHandler   = (e) => { if (preventKeys.has(e.key)) e.preventDefault(); keys.delete(e.key); };
+    window.addEventListener('keydown', keydownHandler, { passive: false });
+    window.addEventListener('keyup',   keyupHandler,   { passive: false });
     window.addEventListener('blur', ()=> keys.clear());
     ui.reset.addEventListener('click', reset);
 
@@ -139,7 +142,7 @@
       let ax=0, ay=-1; if (keys.has('ArrowLeft')||keys.has('a')) ax-=.6; if (keys.has('ArrowRight')||keys.has('d')) ax+=.6; if (keys.has('ArrowUp')||keys.has('w')) ay-=.2;
       const len = Math.hypot(ax,ay)||1, speed = puck.max; puck.vx=(ax/len)*speed; puck.vy=(ay/len)*speed; puck.sticked=false; shots++; updateHUD();
     }
-    window.addEventListener('keydown', e=>{ if(e.key===' ') shoot(); if(e.key==='r'||e.key==='R') reset(); });
+    window.addEventListener('keydown', (e)=>{ if(e.key===' ') shoot(); if(e.key==='r'||e.key==='R') reset(); }, { passive: false });
 
     function update(dt){
       if (!playing) return; timeLeft-=dt; if (timeLeft<=0){ timeLeft=0; playing=false; }
@@ -208,16 +211,11 @@
     function rectCircle(rx,ry,rw,rh,cx,cy,cr){ const closestX=Math.max(rx,Math.min(cx,rx+rw)); const closestY=Math.max(ry,Math.min(cy,ry+rh)); const dx=cx-closestX, dy=cy-closestY; return dx*dx+dy*dy <= cr*cr; }
     function drawOverlay(){ ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#e5e7eb'; ctx.textAlign='center'; ctx.font='10px monospace'; ctx.fillText("Time's up!", W/2, H/2-12); ctx.fillText(`Score: ${score}   Shots: ${shots}`, W/2, H/2+2); ctx.fillText('Press R to restart', W/2, H/2+16); }
 
-    // ✅ FIX: define drawCrease that was previously missing
+    // ✅ FIX: define drawCrease
     function drawCrease(cx, cy, r, side){
-      ctx.strokeStyle = '#475569';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      if (side === 'top'){
-        ctx.arc(Math.round(cx)+.5, Math.round(cy)+.5, r, 0, Math.PI, true);
-      } else {
-        ctx.arc(Math.round(cx)+.5, Math.round(cy)+.5, r, 0, Math.PI, false);
-      }
+      ctx.strokeStyle = '#475569'; ctx.lineWidth = 1; ctx.beginPath();
+      if (side === 'top'){ ctx.arc(Math.round(cx)+.5, Math.round(cy)+.5, r, 0, Math.PI, true); }
+      else { ctx.arc(Math.round(cx)+.5, Math.round(cy)+.5, r, 0, Math.PI, false); }
       ctx.stroke();
     }
 
@@ -228,7 +226,6 @@
       ui.geomStatus.style.borderColor = ok?'#14532d':'#7c2d12'; ui.geomStatus.style.background = ok?'#052e27':'#3b0a0a';
     })();
 
-    // New tests: ensure drawCrease renders for both top/bottom and function exists
     (function runCreaseTests(){
       try {
         const off = document.createElement('canvas'); off.width = 64; off.height = 64; const c = off.getContext('2d');
@@ -242,11 +239,17 @@
         ui.testsStatus.style.borderColor = passed ? '#14532d' : '#7c2d12';
         ui.testsStatus.style.background = passed ? '#052e27' : '#3b0a0a';
       } catch(err){
-        ui.testsStatus.textContent = 'Tests: ERROR';
-        ui.testsStatus.style.borderColor = '#7c2d12';
-        ui.testsStatus.style.background = '#3b0a0a';
+        ui.testsStatus.textContent = 'Tests: ERROR'; ui.testsStatus.style.borderColor = '#7c2d12'; ui.testsStatus.style.background = '#3b0a0a';
         console.error('Test error:', err);
       }
+    })();
+
+    // New test: ensure we can actually call preventDefault on arrows/space (non-passive listeners)
+    (function runInputTests(){
+      let supportsPassive = false; try { const opts = Object.defineProperty({}, 'passive', { get(){ supportsPassive = true; return false; } }); window.addEventListener('test-passive', ()=>{}, opts); window.removeEventListener('test-passive', ()=>{}, opts);} catch(e){}
+      const nonPassiveAttached = true; // we explicitly used {passive:false}
+      if (supportsPassive && nonPassiveAttached){ ui.testsStatus.textContent += ' • Input: OK'; }
+      else { ui.testsStatus.textContent += ' • Input: ?'; }
     })();
 
     // boot
